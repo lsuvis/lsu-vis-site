@@ -1,33 +1,12 @@
-const root=document.documentElement;
-const finePointer=matchMedia('(pointer:fine)').matches;
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)').matches;
-let pointerX=innerWidth*.74,pointerY=innerHeight*.52,pointerActive=false;
-
-if(finePointer){
-  const ring=document.querySelector('.cursor-ring');
-  const dot=document.querySelector('.cursor-dot');
-  let ringX=pointerX,ringY=pointerY;
-  addEventListener('pointermove',event=>{
-    pointerX=event.clientX;
-    pointerY=event.clientY;
-    pointerActive=true;
-    root.style.setProperty('--mx',String(pointerX/innerWidth-.5));
-    root.style.setProperty('--my',String(pointerY/innerHeight-.5));
-    dot.style.transform=`translate(${pointerX}px,${pointerY}px) translate(-50%,-50%)`;
-  });
-  addEventListener('pointerleave',()=>{pointerActive=false});
-  const updateCursor=()=>{
-    ringX+=(pointerX-ringX)*.14;
-    ringY+=(pointerY-ringY)*.14;
-    ring.style.transform=`translate(${ringX}px,${ringY}px) translate(-50%,-50%)`;
-    requestAnimationFrame(updateCursor);
-  };
-  updateCursor();
-}
 
 const canvas=document.querySelector('#field-canvas');
 const context=canvas.getContext('2d',{alpha:false});
-let width=0,height=0,dpr=1,particles=[],lastTime=0;
+const frameInterval=1000/30;
+let width=0,height=0,dpr=1,particles=[],backdropGradient=null;
+let animationFrame=0,lastFrame=0,resizeTimer=0;
+let pointerX=0,pointerY=0,pointerVelocityX=0,pointerVelocityY=0;
+let pointerEnergy=0,pointerLastMove=0,pointerActive=false;
 
 const random=(min,max)=>min+Math.random()*(max-min);
 
@@ -52,7 +31,7 @@ const resetParticle=(particle,initial=false)=>{
 };
 
 const buildParticles=()=>{
-  const count=reducedMotion?220:(width<800?520:1100);
+  const count=reducedMotion?160:(width<800?260:420);
   particles=Array.from({length:count},()=>{
     const particle={};
     resetParticle(particle,true);
@@ -61,7 +40,7 @@ const buildParticles=()=>{
 };
 
 const resize=()=>{
-  dpr=Math.min(devicePixelRatio||1,1.7);
+  dpr=Math.min(devicePixelRatio||1,1.25);
   width=innerWidth;
   height=innerHeight;
   canvas.width=Math.round(width*dpr);
@@ -71,20 +50,21 @@ const resize=()=>{
   context.setTransform(dpr,0,0,dpr,0,0);
   context.fillStyle='#030105';
   context.fillRect(0,0,width,height);
+  const mobile=width<800;
+  const centerX=width*(mobile?.58:.76);
+  const centerY=height*(mobile?.38:.6);
+  backdropGradient=context.createRadialGradient(centerX,centerY,0,centerX,centerY,Math.max(width,height)*.7);
+  backdropGradient.addColorStop(0,'rgba(70,29,124,.05)');
+  backdropGradient.addColorStop(.42,'rgba(15,5,24,.025)');
+  backdropGradient.addColorStop(1,'rgba(3,1,5,.09)');
   buildParticles();
 };
 
-const drawBackdrop=time=>{
-  const mobile=width<800;
-  const pulse=.5+.5*Math.sin(time*.00035);
-  const gradient=context.createRadialGradient(width*(mobile?.58:.76),height*(mobile?.38:.6),0,width*(mobile?.58:.76),height*(mobile?.38:.6),Math.max(width,height)*.7);
-  gradient.addColorStop(0,`rgba(70,29,124,${.035+pulse*.018})`);
-  gradient.addColorStop(.42,'rgba(15,5,24,.025)');
-  gradient.addColorStop(1,'rgba(3,1,5,.085)');
+const drawBackdrop=()=>{
   context.globalCompositeOperation='source-over';
-  context.fillStyle='rgba(3,1,5,.032)';
+  context.fillStyle='rgba(3,1,5,.052)';
   context.fillRect(0,0,width,height);
-  context.fillStyle=gradient;
+  context.fillStyle=backdropGradient;
   context.fillRect(0,0,width,height);
 };
 
@@ -101,20 +81,26 @@ const updateParticle=(particle,time,dt)=>{
   let angle=tangent+ripple+wave;
   let acceleration=particle.speed*(.018+Math.min(distance/Math.max(width,height),.55)*.025);
 
+  particle.vx=particle.vx*.965+Math.cos(angle)*acceleration*dt;
+  particle.vy=particle.vy*.965+Math.sin(angle)*acceleration*dt;
+
   if(pointerActive){
-    const pdx=particle.x-pointerX;
-    const pdy=particle.y-pointerY;
-    const pointerDistance=Math.max(1,Math.hypot(pdx,pdy));
-    if(pointerDistance<260){
-      const influence=(1-pointerDistance/260)*.85;
-      const pointerTangent=Math.atan2(pdy,pdx)+Math.PI/2;
-      angle=angle*(1-influence)+pointerTangent*influence;
-      acceleration+=influence*.09;
+    const pointerDx=particle.x-pointerX;
+    const pointerDy=particle.y-pointerY;
+    const pointerDistanceSquared=pointerDx*pointerDx+pointerDy*pointerDy;
+    const interactionRadius=mobile?110:Math.min(210,Math.max(135,width*.13));
+    const interactionRadiusSquared=interactionRadius*interactionRadius;
+    if(pointerDistanceSquared>1&&pointerDistanceSquared<interactionRadiusSquared){
+      const inverseDistance=1/Math.sqrt(pointerDistanceSquared);
+      const normalX=pointerDx*inverseDistance;
+      const normalY=pointerDy*inverseDistance;
+      const proximity=1-pointerDistanceSquared/interactionRadiusSquared;
+      const force=proximity*proximity*pointerEnergy*dt;
+      particle.vx+=(normalX*.44-normalY*.17+pointerVelocityX*.022)*force;
+      particle.vy+=(normalY*.44+normalX*.17+pointerVelocityY*.022)*force;
     }
   }
 
-  particle.vx=particle.vx*.965+Math.cos(angle)*acceleration*dt;
-  particle.vy=particle.vy*.965+Math.sin(angle)*acceleration*dt;
   const velocity=Math.hypot(particle.vx,particle.vy);
   const maxVelocity=3.2*particle.speed;
   if(velocity>maxVelocity){
@@ -140,15 +126,8 @@ const drawParticle=particle=>{
   context.lineTo(particle.x,particle.y);
   context.lineWidth=particle.width;
   context.strokeStyle=particle.gold?`rgba(253,208,35,${Math.min(1,particle.alpha*fade*1.18)})`:`rgba(143,57,255,${particle.alpha*fade*.82})`;
-  if(particle.width>1.25){
-    context.save();
-    context.lineWidth=particle.width*3.5;
-    context.strokeStyle=particle.gold?`rgba(253,208,35,${particle.alpha*fade*.12})`:`rgba(143,57,255,${particle.alpha*fade*.1})`;
-    context.stroke();
-    context.restore();
-  }
   context.stroke();
-  if(particle.gold&&particle.width>1.05&&Math.random()<.025){
+  if(particle.gold&&particle.width>1.05&&Math.random()<.012){
     context.beginPath();
     context.fillStyle=`rgba(255,245,194,${.65*fade})`;
     context.arc(particle.x,particle.y,1.6,0,Math.PI*2);
@@ -156,32 +135,93 @@ const drawParticle=particle=>{
   }
 };
 
-const draw=time=>{
-  const dt=Math.min(2,(time-lastTime)/16.67||1);
-  lastTime=time;
-  drawBackdrop(time);
+const drawFrame=(time,dt,update=true)=>{
+  drawBackdrop();
   context.globalCompositeOperation='lighter';
   for(const particle of particles){
-    if(!reducedMotion)updateParticle(particle,time,dt);
+    if(update)updateParticle(particle,time,dt);
     drawParticle(particle);
   }
-  if(!reducedMotion)requestAnimationFrame(draw);
 };
 
 const warmUp=()=>{
-  if(reducedMotion)return;
-  for(let step=0;step<150;step++){
+  const steps=reducedMotion?1:24;
+  for(let step=0;step<steps;step++){
     const time=step*16.67;
-    drawBackdrop(time);
-    context.globalCompositeOperation='lighter';
-    for(const particle of particles){
-      updateParticle(particle,time,1);
-      drawParticle(particle);
-    }
+    drawFrame(time,1,true);
   }
+};
+
+const draw=time=>{
+  if(document.hidden){
+    animationFrame=0;
+    return;
+  }
+  animationFrame=requestAnimationFrame(draw);
+  const elapsed=time-lastFrame;
+  if(elapsed<frameInterval)return;
+  lastFrame=time-elapsed%frameInterval;
+  if(pointerActive){
+    pointerVelocityX*=.86;
+    pointerVelocityY*=.86;
+    pointerEnergy*=time-pointerLastMove>500?.94:.985;
+    if(time-pointerLastMove>2200||pointerEnergy<.018)pointerActive=false;
+  }
+  drawFrame(time,Math.min(2,elapsed/16.67||1),true);
+};
+
+const stopAnimation=()=>{
+  if(animationFrame)cancelAnimationFrame(animationFrame);
+  animationFrame=0;
+};
+
+const startAnimation=()=>{
+  if(reducedMotion){
+    drawFrame(0,1,false);
+    return;
+  }
+  if(animationFrame)return;
+  lastFrame=performance.now();
+  animationFrame=requestAnimationFrame(draw);
 };
 
 resize();
 warmUp();
-addEventListener('resize',()=>{resize();warmUp()});
-requestAnimationFrame(draw);
+startAnimation();
+
+addEventListener('pointermove',event=>{
+  const nextX=event.clientX;
+  const nextY=event.clientY;
+  if(pointerActive){
+    pointerVelocityX=pointerVelocityX*.55+(nextX-pointerX)*.45;
+    pointerVelocityY=pointerVelocityY*.55+(nextY-pointerY)*.45;
+  }else{
+    pointerVelocityX=0;
+    pointerVelocityY=0;
+  }
+  pointerX=nextX;
+  pointerY=nextY;
+  pointerEnergy=Math.min(1,.34+Math.hypot(pointerVelocityX,pointerVelocityY)*.045);
+  pointerLastMove=performance.now();
+  pointerActive=true;
+},{passive:true});
+
+addEventListener('blur',()=>{
+  pointerActive=false;
+  pointerEnergy=0;
+});
+
+addEventListener('resize',()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{
+    resize();
+    warmUp();
+  },140);
+});
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)stopAnimation();
+  else startAnimation();
+});
+
+addEventListener('pagehide',stopAnimation);
