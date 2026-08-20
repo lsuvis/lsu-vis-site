@@ -1,0 +1,52 @@
+name: Deploy to vis.lsu.edu
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, vis-deploy]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Deploy static site to /var/www/vis
+        run: |
+          set -euo pipefail
+
+          SRC="$GITHUB_WORKSPACE"
+          DEST="/var/www/vis"
+          BACKUP_ROOT="/var/www/vis-backups"
+          TS="$(date +%Y%m%d-%H%M%S)"
+
+          mkdir -p "$BACKUP_ROOT"
+          cp -a "$DEST" "$BACKUP_ROOT/vis-$TS"
+
+          # Remove everything in the doc root except the certbot ACME challenge directory.
+          find "$DEST" -mindepth 1 -maxdepth 1 -not -name ".well-known" -exec rm -rf {} +
+
+          # Copy the checked-out site, excluding VCS/workflow metadata.
+          rsync -a --exclude='.git' --exclude='.github' "$SRC/" "$DEST/"
+
+          find "$DEST" -type d -not -path "$DEST/.well-known*" -exec chmod 755 {} +
+          find "$DEST" -type f -not -path "$DEST/.well-known*" -exec chmod 644 {} +
+
+          # Best-effort SELinux relabel (files should already inherit httpd_sys_content_t
+          # from the parent directory; this is a safety net and does not require sudo
+          # since dostrenko@lsu.edu owns /var/www/vis via the webdeploy group).
+          restorecon -R "$DEST" || true
+
+          echo "Deployed $(git -C "$SRC" rev-parse --short HEAD) to $DEST"
+
+      - name: Verify site responds
+        run: |
+          set -euo pipefail
+          code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)"
+          echo "HTTP status: $code"
+          if [ "$code" != "200" ]; then
+            echo "Deployment verification failed with status $code" >&2
+            exit 1
+          fi
