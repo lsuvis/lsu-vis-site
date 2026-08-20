@@ -29,7 +29,9 @@ jobs:
           find "$DEST" -mindepth 1 -maxdepth 1 -not -name ".well-known" -exec rm -rf {} +
 
           # Copy the checked-out site, excluding VCS/workflow metadata.
-          rsync -a --exclude='.git' --exclude='.github' "$SRC/" "$DEST/"
+          # --no-owner/--no-group avoid rsync trying to chown/chgrp the destination
+          # to match the runner's checkout ownership (which it may not be permitted to do).
+          rsync -rlptD --no-owner --no-group --exclude='.git' --exclude='.github' "$SRC/" "$DEST/"
 
           find "$DEST" -type d -not -path "$DEST/.well-known*" -exec chmod 755 {} +
           find "$DEST" -type f -not -path "$DEST/.well-known*" -exec chmod 644 {} +
