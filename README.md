@@ -14,10 +14,6 @@ The site is a single-page, static splash page (plain HTML/CSS/JS, no build step,
 - `lsu-vis-logo.png` — site logo, referenced directly by `index.html`
 - `.github/workflows/deploy.yml` — CI/CD deployment workflow
 
-## Contact
-
-The "Get in touch" link on the page points to `vis@lsu.edu`, a shared group mailbox rather than an individual's address.
-
 ## Deployment
 
 Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`):
@@ -31,16 +27,9 @@ Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`):
 
 No manual deployment steps are required — merging to `main` publishes the site.
 
-## Hosting & TLS configuration
+## Hosting
 
-The production host (`vis.lsu.edu`) runs Apache HTTP Server (RHEL). Notable hardening in place at the web server level (configured outside this repository, directly on the host):
-
-- TLS restricted to 1.2/1.3, AEAD-only, 256-bit cipher suites (no CBC/RC4/3DES/128-bit suites).
-- HTTP Strict Transport Security (HSTS) enforced (`max-age=63072000; includeSubDomains`).
-- OCSP stapling enabled.
-- Only ports 80 (redirects to HTTPS) and 443 are exposed externally.
-
-These are server configuration concerns, not part of this repository's static assets, but are documented here for reference since they affect how the site served from this repo is delivered to visitors.
+The production host (`vis.lsu.edu`) runs Apache HTTP Server (RHEL) with hardened TLS. This configuration lives on the host, not in this repository.
 
 ## Local development
 
