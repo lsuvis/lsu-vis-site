@@ -12,6 +12,8 @@ The site is a single-page, static splash page (plain HTML/CSS/JS, no build step,
 - `styles.css` — page styling
 - `script.js` — client-side interactive/visual effects (background canvas field)
 - `lsu-vis-logo.png` — site logo, referenced directly by `index.html`
+- `sitemap.xml` — sitemap listing the production homepage for search engines
+- `robots.txt` — crawler access rules and sitemap location
 - `.github/workflows/deploy.yml` — CI/CD deployment workflow
 
 ## Deployment
