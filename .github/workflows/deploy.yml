@@ -21,25 +21,28 @@ jobs:
           DEST="/var/www/vis"
           BACKUP_ROOT="/var/www/vis-backups"
           TS="$(date +%Y%m%d-%H%M%S)"
+          SITE_FILES=(index.html styles.css script.js lsu-vis-logo.png robots.txt sitemap.xml)
+          while IFS= read -r -d '' file; do
+            SITE_FILES+=("$file")
+          done < <(git -C "$SRC" ls-files -z -- 'google*.html')
 
-          mkdir -p "$BACKUP_ROOT"
-          cp -a "$DEST" "$BACKUP_ROOT/vis-$TS"
+          mkdir -p "$BACKUP_ROOT/vis-$TS"
+          for file in "${SITE_FILES[@]}"; do
+            if [ -f "$DEST/$file" ]; then
+              cp -p "$DEST/$file" "$BACKUP_ROOT/vis-$TS/"
+            fi
+          done
 
-          # Remove everything in the doc root except the certbot ACME challenge directory.
-          find "$DEST" -mindepth 1 -maxdepth 1 -not -name ".well-known" -exec rm -rf {} +
+          # The document root also hosts independent projects. Only update this
+          # site's files; never delete or change permissions on sibling content.
+          for file in "${SITE_FILES[@]}"; do
+            rsync -rltp --no-owner --no-group --chmod=F644 "$SRC/$file" "$DEST/"
+          done
 
-          # Copy the checked-out site, excluding VCS/workflow metadata.
-          # --no-owner/--no-group avoid rsync trying to chown/chgrp the destination
-          # to match the runner's checkout ownership (which it may not be permitted to do).
-          rsync -rlptD --no-owner --no-group --exclude='.git' --exclude='.github' "$SRC/" "$DEST/"
-
-          find "$DEST" -type d -not -path "$DEST/.well-known*" -exec chmod 755 {} +
-          find "$DEST" -type f -not -path "$DEST/.well-known*" -exec chmod 644 {} +
-
-          # Best-effort SELinux relabel (files should already inherit httpd_sys_content_t
-          # from the parent directory; this is a safety net and does not require sudo
-          # since dostrenko@lsu.edu owns /var/www/vis via the webdeploy group).
-          restorecon -R "$DEST" || true
+          # New files normally inherit the document root's SELinux context.
+          for file in "${SITE_FILES[@]}"; do
+            restorecon "$DEST/$file" || true
+          done
 
           echo "Deployed $(git -C "$SRC" rev-parse --short HEAD) to $DEST"
 
@@ -52,3 +55,5 @@ jobs:
             echo "Deployment verification failed with status $code" >&2
             exit 1
           fi
+          curl -fsk https://localhost/sitemap.xml > /dev/null
+          curl -fsk https://localhost/robots.txt > /dev/null

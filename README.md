@@ -22,10 +22,10 @@ Deployment is automated via GitHub Actions (`.github/workflows/deploy.yml`):
 
 - Triggers on every push to `main` (or manually via `workflow_dispatch`).
 - Runs on a self-hosted runner (label: `vis-deploy`) on the production host.
-- Syncs the repository contents to `/var/www/vis`, preserving the Let's Encrypt/ACME `.well-known` challenge directory.
-- Applies standard file/directory permissions (`644`/`755`) and a best-effort SELinux relabel (`restorecon`).
-- Verifies the deployment by checking that `https://localhost/` responds with HTTP 200.
-- Keeps a timestamped backup of the previous doc root under `/var/www/vis-backups`.
+- Copies the homepage, assets, sitemap, crawler rules, and tracked Google verification files to `/var/www/vis`, preserving other hosted projects and the `.well-known` challenge directory.
+- Applies standard file permissions (`644`) and a best-effort SELinux relabel (`restorecon`) only to the deployed files.
+- Verifies that the homepage, sitemap, and crawler rules respond successfully over HTTPS.
+- Keeps a timestamped backup of the replaced site files under `/var/www/vis-backups`.
 
 No manual deployment steps are required — merging to `main` publishes the site.
 
